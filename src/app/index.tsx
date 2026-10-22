@@ -1,10 +1,12 @@
 
+
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Image,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Switch,
@@ -13,6 +15,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+
 
 import {
   createDish,
@@ -23,11 +26,14 @@ import {
   updateDish,
 } from "../api";
 
+
 import type { Dish, DishCategory, DishImage } from "../models";
+
 
 type Language = "en" | "vi";
 type AvailabilityFilter = "all" | "available" | "unavailable";
 type SortOption = "none" | "priceAsc" | "priceDesc" | "timeAsc";
+
 
 const COLORS = {
   primary: "#2563EB",
@@ -40,12 +46,14 @@ const COLORS = {
   green: "#15803D",
 };
 
+
 export default function Index() {
   const [dishes, setDishes] = useState<Dish[]>([]);
   const [categories, setCategories] = useState<DishCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [language, setLanguage] = useState<Language>("en");
+
 
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState("all");
@@ -55,8 +63,10 @@ export default function Index() {
   const [maxPrice, setMaxPrice] = useState("");
   const [sortOption, setSortOption] = useState<SortOption>("none");
 
+
   const [modalVisible, setModalVisible] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+
 
   const [name, setName] = useState("");
   const [price, setPrice] = useState("");
@@ -65,15 +75,29 @@ export default function Index() {
   const [categoryId, setCategoryId] = useState("");
   const [isAvailable, setIsAvailable] = useState(true);
 
+
   const [imageUrl, setImageUrl] = useState("");
   const [dishImages, setDishImages] = useState<DishImage[]>([]);
+
 
   const t = (english: string, vietnamese: string) =>
     language === "en" ? english : vietnamese;
 
+
+  // Hiển thị thông báo đúng trên cả trình duyệt web và điện thoại.
+  function showMessage(title: string, message: string) {
+    if (Platform.OS === "web") {
+      window.alert(`${title}\\n\\n${message}`);
+    } else {
+      Alert.alert(title, message);
+    }
+  }
+
+
   async function loadData() {
     try {
       setLoading(true);
+
 
       // Try to synchronize offline changes before reloading data.
       try {
@@ -82,13 +106,16 @@ export default function Index() {
         // Continue loading cached data if synchronization fails.
       }
 
+
       const [dishData, categoryData] = await Promise.all([
         getDishes(),
         getCategories(),
       ]);
 
+
       setDishes(dishData);
       setCategories(categoryData);
+
 
       if (
         categoryData.length > 0 &&
@@ -111,19 +138,23 @@ export default function Index() {
     }
   }
 
+
   useEffect(() => {
     void loadData();
   }, []);
+
 
   function getCategoryName(id: string) {
     const category = categories.find(
       (item) => item.BIT240235_Id === id
     );
 
+
     return category
       ? category.BIT240235_Name
       : t("Unknown category", "Danh mục không xác định");
   }
+
 
   function resetForm() {
     setName("");
@@ -135,12 +166,14 @@ export default function Index() {
     setDishImages([]);
     setEditingId(null);
 
+
     if (categories.length > 0) {
       setCategoryId(categories[0].BIT240235_Id);
     } else {
       setCategoryId("");
     }
   }
+
 
   function openAdd() {
     if (categories.length === 0) {
@@ -154,9 +187,11 @@ export default function Index() {
       return;
     }
 
+
     resetForm();
     setModalVisible(true);
   }
+
 
   function openEdit(dish: Dish) {
     setEditingId(dish.BIT240235_Id);
@@ -179,8 +214,10 @@ export default function Index() {
     setModalVisible(true);
   }
 
+
   function addDishImage() {
     const url = imageUrl.trim();
+
 
     if (!/^https?:\/\/\S+$/i.test(url)) {
       Alert.alert(
@@ -192,6 +229,7 @@ export default function Index() {
       );
       return;
     }
+
 
     if (
       dishImages.some(
@@ -205,6 +243,7 @@ export default function Index() {
       return;
     }
 
+
     setDishImages((previous) => [
       ...previous,
       {
@@ -213,14 +252,17 @@ export default function Index() {
       },
     ]);
 
+
     setImageUrl("");
   }
+
 
   function removeDishImage(url: string) {
     setDishImages((previous) => {
       const remaining = previous.filter(
         (image) => image.BIT240235_ImageUrl !== url
       );
+
 
       if (
         remaining.length > 0 &&
@@ -234,9 +276,11 @@ export default function Index() {
         };
       }
 
+
       return remaining;
     });
   }
+
 
   function setThumbnail(url: string) {
     setDishImages((previous) =>
@@ -248,38 +292,42 @@ export default function Index() {
     );
   }
 
+
   async function saveDish() {
     const cleanName = name.trim();
     const numericPrice = Number(price);
     const numericTime = Number(preparationTime);
     const cleanDescription = description.trim();
 
+
     if (!cleanName) {
-      Alert.alert(
+      showMessage(
         t("Validation", "Kiểm tra dữ liệu"),
         t("Dish name is required.", "Vui lòng nhập tên món ăn.")
       );
       return;
     }
 
+
     if (
       price.trim() === "" ||
       !Number.isFinite(numericPrice) ||
       numericPrice <= 0
     ) {
-      Alert.alert(
+      showMessage(
         t("Validation", "Kiểm tra dữ liệu"),
         t("Price must be greater than 0.", "Giá phải lớn hơn 0.")
       );
       return;
     }
 
+
     if (
       preparationTime.trim() === "" ||
       !Number.isFinite(numericTime) ||
       numericTime <= 0
     ) {
-      Alert.alert(
+      showMessage(
         t("Validation", "Kiểm tra dữ liệu"),
         t(
           "Preparation time must be greater than 0.",
@@ -289,17 +337,20 @@ export default function Index() {
       return;
     }
 
+
     const selectedCategory = categories.find(
       (category) => category.BIT240235_Id === categoryId
     );
 
+
     if (!selectedCategory) {
-      Alert.alert(
+      showMessage(
         t("Validation", "Kiểm tra dữ liệu"),
         t("Please select a valid category.", "Vui lòng chọn danh mục hợp lệ.")
       );
       return;
     }
+
 
     const duplicate = dishes.some(
       (dish) =>
@@ -309,8 +360,9 @@ export default function Index() {
           cleanName.toLowerCase()
     );
 
+
     if (duplicate) {
-      Alert.alert(
+      showMessage(
         t("Duplicate dish", "Món ăn bị trùng"),
         t(
           "This dish name already exists in this category.",
@@ -319,6 +371,7 @@ export default function Index() {
       );
       return;
     }
+
 
     const images = dishImages.map((image, index) => ({
       ...image,
@@ -329,6 +382,7 @@ export default function Index() {
             (item) => item.BIT240235_IsThumbnail
           )),
     }));
+
 
     const newDish: Dish = {
       BIT240235_Id: editingId ?? "",
@@ -341,8 +395,10 @@ export default function Index() {
       BIT240235_DishImage: images,
     };
 
+
     try {
       setSaving(true);
+
 
       if (editingId) {
         await updateDish(editingId, newDish);
@@ -350,9 +406,11 @@ export default function Index() {
         await createDish(newDish);
       }
 
+
       setModalVisible(false);
 
-      Alert.alert(
+
+      showMessage(
         t("Success", "Thành công"),
         t(
           "Dish saved successfully.",
@@ -360,9 +418,10 @@ export default function Index() {
         )
       );
 
+
       await loadData();
     } catch (error) {
-      Alert.alert(
+      showMessage(
         t("Save error", "Lỗi lưu dữ liệu"),
         error instanceof Error
           ? error.message
@@ -373,43 +432,87 @@ export default function Index() {
     }
   }
 
-  function confirmDelete(dish: Dish) {
-    Alert.alert(
-      t("Delete dish", "Xóa món ăn"),
-      t(
-        `Are you sure you want to delete "${dish.BIT240235_Name}"?`,
-        `Bạn có chắc muốn xóa "${dish.BIT240235_Name}" không?`
-      ),
-      [
-        {
-          text: t("Cancel", "Hủy"),
-          style: "cancel",
-        },
-        {
-          text: t("Delete", "Xóa"),
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await deleteDishFromAPI(dish.BIT240235_Id);
-              await loadData();
-            } catch (error) {
-              Alert.alert(
-                t("Delete error", "Lỗi xóa"),
-                error instanceof Error
-                  ? error.message
-                  : t("Could not delete the dish.", "Không thể xóa món ăn.")
-              );
-            }
-          },
-        },
-      ]
-    );
+
+  async function deleteDishNow(dish: Dish) {
+  try {
+    await deleteDishFromAPI(dish.BIT240235_Id);
+    await loadData();
+
+
+    if (Platform.OS === "web") {
+      window.alert(
+        language === "en"
+          ? "Dish deleted successfully."
+          : "Đã xóa món ăn thành công."
+      );
+    } else {
+      Alert.alert(
+        t("Success", "Thành công"),
+        t(
+          "Dish deleted successfully.",
+          "Đã xóa món ăn thành công."
+        )
+      );
+    }
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : t(
+            "Could not delete the dish.",
+            "Không thể xóa món ăn."
+          );
+
+
+    if (Platform.OS === "web") {
+      window.alert(message);
+    } else {
+      Alert.alert(t("Delete error", "Lỗi xóa"), message);
+    }
   }
+}
+
+
+function confirmDelete(dish: Dish) {
+  const message = t(
+    `Are you sure you want to delete "${dish.BIT240235_Name}"?`,
+    `Bạn có chắc muốn xóa "${dish.BIT240235_Name}" không?`
+  );
+
+
+  if (Platform.OS === "web") {
+    if (window.confirm(message)) {
+      void deleteDishNow(dish);
+    }
+    return;
+  }
+
+
+  Alert.alert(
+    t("Delete dish", "Xóa món ăn"),
+    message,
+    [
+      {
+        text: t("Cancel", "Hủy"),
+        style: "cancel",
+      },
+      {
+        text: t("Delete", "Xóa"),
+        style: "destructive",
+        onPress: () => {
+          void deleteDishNow(dish);
+        },
+      },
+    ]
+  );
+}
+
 
   const invalidPriceRange =
     minPrice.trim() !== "" &&
     maxPrice.trim() !== "" &&
     Number(minPrice) > Number(maxPrice);
+
 
   const filteredDishes = dishes
     .filter((dish) =>
@@ -427,9 +530,11 @@ export default function Index() {
         return dish.BIT240235_IsAvailable;
       }
 
+
       if (availability === "unavailable") {
         return !dish.BIT240235_IsAvailable;
       }
+
 
       return true;
     })
@@ -438,9 +543,11 @@ export default function Index() {
         return false;
       }
 
+
       if (maxPrice.trim() !== "" && dish.BIT240235_Price > Number(maxPrice)) {
         return false;
       }
+
 
       return true;
     })
@@ -449,9 +556,11 @@ export default function Index() {
         return a.BIT240235_Price - b.BIT240235_Price;
       }
 
+
       if (sortOption === "priceDesc") {
         return b.BIT240235_Price - a.BIT240235_Price;
       }
+
 
       if (sortOption === "timeAsc") {
         return (
@@ -460,11 +569,14 @@ export default function Index() {
         );
       }
 
+
       return 0;
     });
 
+
   const formatPrice = (value: number) =>
     `${value.toLocaleString("en-US")} VND`;
+
 
   function chip(
     label: string,
@@ -489,6 +601,7 @@ export default function Index() {
     );
   }
 
+
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
@@ -498,6 +611,7 @@ export default function Index() {
             {t("Manage your dishes", "Quản lý món ăn")}
           </Text>
         </View>
+
 
         <TouchableOpacity
           style={styles.languageButton}
@@ -513,6 +627,7 @@ export default function Index() {
         </TouchableOpacity>
       </View>
 
+
       <ScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
@@ -521,6 +636,7 @@ export default function Index() {
           {t("Search dishes", "Tìm món ăn")}
         </Text>
 
+
         <TextInput
           style={styles.input}
           placeholder={t("Enter dish name...", "Nhập tên món ăn...")}
@@ -528,9 +644,11 @@ export default function Index() {
           onChangeText={setSearch}
         />
 
+
         <Text style={styles.label}>
           {t("Category", "Danh mục")}
         </Text>
+
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           {chip(
@@ -538,6 +656,7 @@ export default function Index() {
             filterCategory === "all",
             () => setFilterCategory("all")
           )}
+
 
           {categories.map((category) =>
             chip(
@@ -548,9 +667,11 @@ export default function Index() {
           )}
         </ScrollView>
 
+
         <Text style={styles.label}>
           {t("Availability", "Trạng thái")}
         </Text>
+
 
         <View style={styles.chipRow}>
           {chip(
@@ -570,9 +691,11 @@ export default function Index() {
           )}
         </View>
 
+
         <Text style={styles.label}>
           {t("Price range (VND)", "Khoảng giá (VND)")}
         </Text>
+
 
         <View style={styles.row}>
           <TextInput
@@ -591,6 +714,7 @@ export default function Index() {
           />
         </View>
 
+
         {invalidPriceRange && (
           <Text style={styles.errorText}>
             {t(
@@ -600,9 +724,11 @@ export default function Index() {
           </Text>
         )}
 
+
         <Text style={styles.label}>
           {t("Sort by", "Sắp xếp")}
         </Text>
+
 
         <View style={styles.chipRow}>
           {chip(
@@ -627,6 +753,7 @@ export default function Index() {
           )}
         </View>
 
+
         <TouchableOpacity
           style={styles.addButton}
           onPress={openAdd}
@@ -636,6 +763,7 @@ export default function Index() {
           </Text>
         </TouchableOpacity>
 
+
         <View style={styles.listHeading}>
           <Text style={styles.sectionTitle}>
             {t("Dish List", "Danh sách món ăn")}
@@ -644,6 +772,7 @@ export default function Index() {
             {filteredDishes.length} {t("dishes", "món")}
           </Text>
         </View>
+
 
         {loading ? (
           <ActivityIndicator
@@ -667,6 +796,7 @@ export default function Index() {
                 ) ?? dish.BIT240235_DishImage[0]
               : undefined;
 
+
             return (
               <View
                 key={dish.BIT240235_Id}
@@ -686,18 +816,22 @@ export default function Index() {
                   </View>
                 )}
 
+
                 <View style={styles.dishInfo}>
                   <Text style={styles.dishName}>
                     {dish.BIT240235_Name}
                   </Text>
 
+
                   <Text style={styles.categoryText}>
                     {getCategoryName(dish.BIT240235_DishCategoryId)}
                   </Text>
 
+
                   <Text style={styles.priceText}>
                     {formatPrice(dish.BIT240235_Price)}
                   </Text>
+
 
                   <Text style={styles.detailText}>
                     {dish.BIT240235_PreparationTime}{" "}
@@ -706,6 +840,7 @@ export default function Index() {
                       ? t("Quick", "Nhanh")
                       : t("Regular", "Thông thường")}
                   </Text>
+
 
                   <Text
                     style={[
@@ -720,11 +855,13 @@ export default function Index() {
                       : t("Unavailable", "Ngừng bán")}
                   </Text>
 
+
                   {!!dish.BIT240235_Description && (
                     <Text style={styles.description}>
                       {dish.BIT240235_Description}
                     </Text>
                   )}
+
 
                   <View style={styles.actionRow}>
                     <TouchableOpacity
@@ -735,6 +872,7 @@ export default function Index() {
                         {t("Edit", "Sửa")}
                       </Text>
                     </TouchableOpacity>
+
 
                     <TouchableOpacity
                       style={styles.deleteButton}
@@ -751,6 +889,7 @@ export default function Index() {
           })
         )}
 
+
         <TouchableOpacity
           style={styles.refreshButton}
           onPress={() => void loadData()}
@@ -761,6 +900,7 @@ export default function Index() {
           </Text>
         </TouchableOpacity>
       </ScrollView>
+
 
       <Modal
         visible={modalVisible}
@@ -775,12 +915,14 @@ export default function Index() {
                 : t("Add Dish", "Thêm món ăn")}
             </Text>
 
+
             <TouchableOpacity
               onPress={() => setModalVisible(false)}
             >
               <Text style={styles.closeText}>✕</Text>
             </TouchableOpacity>
           </View>
+
 
           <ScrollView
             contentContainerStyle={styles.formContent}
@@ -796,6 +938,7 @@ export default function Index() {
               onChangeText={setName}
             />
 
+
             <Text style={styles.label}>
               {t("Price (VND) *", "Giá (VND) *")}
             </Text>
@@ -806,6 +949,7 @@ export default function Index() {
               onChangeText={setPrice}
               keyboardType="decimal-pad"
             />
+
 
             <Text style={styles.label}>
               {t("Preparation time (minutes) *", "Thời gian chuẩn bị (phút) *")}
@@ -818,6 +962,7 @@ export default function Index() {
               keyboardType="numeric"
             />
 
+
             <Text style={styles.label}>
               {t("Description", "Mô tả")}
             </Text>
@@ -829,6 +974,7 @@ export default function Index() {
               multiline
               textAlignVertical="top"
             />
+
 
             <Text style={styles.label}>
               {t("Select category *", "Chọn danh mục *")}
@@ -843,6 +989,7 @@ export default function Index() {
               )}
             </View>
 
+
             <View style={styles.switchRow}>
               <Text style={styles.label}>
                 {t("Available for sale", "Đang bán")}
@@ -854,9 +1001,11 @@ export default function Index() {
               />
             </View>
 
+
             <Text style={styles.sectionTitle}>
               {t("Dish Images", "Ảnh món ăn")}
             </Text>
+
 
             <Text style={styles.hint}>
               {t(
@@ -864,6 +1013,7 @@ export default function Index() {
                 "Thêm URL ảnh. Ảnh đầu tiên mặc định là ảnh đại diện."
               )}
             </Text>
+
 
             <TextInput
               style={styles.input}
@@ -874,6 +1024,7 @@ export default function Index() {
               keyboardType="url"
             />
 
+
             <TouchableOpacity
               style={styles.secondaryButton}
               onPress={addDishImage}
@@ -882,6 +1033,7 @@ export default function Index() {
                 + {t("Add Image URL", "Thêm URL ảnh")}
               </Text>
             </TouchableOpacity>
+
 
             {dishImages.map((image) => (
               <View
@@ -902,10 +1054,12 @@ export default function Index() {
                   }
                 />
 
+
                 <View style={styles.imageDetails}>
                   <Text style={styles.imageUrlText} numberOfLines={2}>
                     {image.BIT240235_ImageUrl}
                   </Text>
+
 
                   <TouchableOpacity
                     onPress={() =>
@@ -925,6 +1079,7 @@ export default function Index() {
                     </Text>
                   </TouchableOpacity>
 
+
                   <TouchableOpacity
                     onPress={() =>
                       removeDishImage(image.BIT240235_ImageUrl)
@@ -937,6 +1092,7 @@ export default function Index() {
                 </View>
               </View>
             ))}
+
 
             <TouchableOpacity
               style={[
@@ -953,6 +1109,7 @@ export default function Index() {
               </Text>
             </TouchableOpacity>
 
+
             <TouchableOpacity
               style={styles.cancelButton}
               onPress={() => setModalVisible(false)}
@@ -968,6 +1125,7 @@ export default function Index() {
     </View>
   );
 }
+
 
 const styles = StyleSheet.create({
   screen: {
@@ -1324,3 +1482,6 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
 });
+
+
+
