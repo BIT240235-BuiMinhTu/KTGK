@@ -3,10 +3,11 @@ import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  FlatList,
+  Image,
   Modal,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -18,40 +19,68 @@ import {
   deleteDishFromAPI,
   getCategories,
   getDishes,
+  syncPendingOperations,
   updateDish,
 } from "../api";
-import type { Dish, DishCategory } from "../models";
 
-export default function HomeScreen() {
+import type { Dish, DishCategory, DishImage } from "../models";
+
+type Language = "en" | "vi";
+type AvailabilityFilter = "all" | "available" | "unavailable";
+type SortOption = "none" | "priceAsc" | "priceDesc" | "timeAsc";
+
+const COLORS = {
+  primary: "#2563EB",
+  background: "#F3F6FB",
+  white: "#FFFFFF",
+  text: "#172033",
+  muted: "#64748B",
+  border: "#DCE3ED",
+  danger: "#DC2626",
+  green: "#15803D",
+};
+
+export default function Index() {
   const [dishes, setDishes] = useState<Dish[]>([]);
   const [categories, setCategories] = useState<DishCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [language, setLanguage] = useState<Language>("en");
 
   const [search, setSearch] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("all");
-  const [availabilityFilter, setAvailabilityFilter] = useState("all");
+  const [filterCategory, setFilterCategory] = useState("all");
+  const [availability, setAvailability] =
+    useState<AvailabilityFilter>("all");
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
-  const [sortBy, setSortBy] = useState("none");
+  const [sortOption, setSortOption] = useState<SortOption>("none");
 
-  const [visible, setVisible] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const [name, setName] = useState("");
   const [price, setPrice] = useState("");
-  const [time, setTime] = useState("");
+  const [preparationTime, setPreparationTime] = useState("");
   const [description, setDescription] = useState("");
   const [categoryId, setCategoryId] = useState("");
-  const [available, setAvailable] = useState(true);
+  const [isAvailable, setIsAvailable] = useState(true);
 
-  useEffect(() => {
-    void loadData();
-  }, []);
+  const [imageUrl, setImageUrl] = useState("");
+  const [dishImages, setDishImages] = useState<DishImage[]>([]);
+
+  const t = (english: string, vietnamese: string) =>
+    language === "en" ? english : vietnamese;
 
   async function loadData() {
     try {
       setLoading(true);
+
+      // Try to synchronize offline changes before reloading data.
+      try {
+        await syncPendingOperations();
+      } catch {
+        // Continue loading cached data if synchronization fails.
+      }
 
       const [dishData, categoryData] = await Promise.all([
         getDishes(),
@@ -61,76 +90,214 @@ export default function HomeScreen() {
       setDishes(dishData);
       setCategories(categoryData);
 
-      if (categoryData.length > 0 && !categoryId) {
+      if (
+        categoryData.length > 0 &&
+        !categoryData.some(
+          (category) =>
+            category.BIT240235_Id === categoryId
+        )
+      ) {
         setCategoryId(categoryData[0].BIT240235_Id);
       }
     } catch (error) {
       Alert.alert(
-        "Connection Error",
+        t("Loading error", "Lỗi tải dữ liệu"),
         error instanceof Error
           ? error.message
-          : "Cannot load data from MockAPI."
+          : t("Cannot load data.", "Không thể tải dữ liệu.")
       );
     } finally {
       setLoading(false);
     }
   }
 
-  function openAdd() {
-    setEditingId(null);
+  useEffect(() => {
+    void loadData();
+  }, []);
+
+  function getCategoryName(id: string) {
+    const category = categories.find(
+      (item) => item.BIT240235_Id === id
+    );
+
+    return category
+      ? category.BIT240235_Name
+      : t("Unknown category", "Danh mục không xác định");
+  }
+
+  function resetForm() {
     setName("");
     setPrice("");
-    setTime("");
+    setPreparationTime("");
     setDescription("");
-    setCategoryId(categories[0]?.BIT240235_Id ?? "");
-    setAvailable(true);
-    setVisible(true);
+    setIsAvailable(true);
+    setImageUrl("");
+    setDishImages([]);
+    setEditingId(null);
+
+    if (categories.length > 0) {
+      setCategoryId(categories[0].BIT240235_Id);
+    } else {
+      setCategoryId("");
+    }
+  }
+
+  function openAdd() {
+    if (categories.length === 0) {
+      Alert.alert(
+        t("Notice", "Thông báo"),
+        t(
+          "Please create a category in MockAPI first.",
+          "Vui lòng tạo danh mục trong MockAPI trước."
+        )
+      );
+      return;
+    }
+
+    resetForm();
+    setModalVisible(true);
   }
 
   function openEdit(dish: Dish) {
     setEditingId(dish.BIT240235_Id);
     setName(dish.BIT240235_Name);
     setPrice(String(dish.BIT240235_Price));
-    setTime(String(dish.BIT240235_PreparationTime));
+    setPreparationTime(
+      String(dish.BIT240235_PreparationTime)
+    );
     setDescription(dish.BIT240235_Description);
     setCategoryId(dish.BIT240235_DishCategoryId);
-    setAvailable(dish.BIT240235_IsAvailable);
-    setVisible(true);
+    setIsAvailable(dish.BIT240235_IsAvailable);
+    setDishImages(
+      Array.isArray(dish.BIT240235_DishImage)
+        ? dish.BIT240235_DishImage.map((image) => ({
+            ...image,
+          }))
+        : []
+    );
+    setImageUrl("");
+    setModalVisible(true);
+  }
+
+  function addDishImage() {
+    const url = imageUrl.trim();
+
+    if (!/^https?:\/\/\S+$/i.test(url)) {
+      Alert.alert(
+        t("Invalid image URL", "Đường dẫn ảnh không hợp lệ"),
+        t(
+          "Enter an image URL starting with http:// or https://.",
+          "Nhập URL ảnh bắt đầu bằng http:// hoặc https://."
+        )
+      );
+      return;
+    }
+
+    if (
+      dishImages.some(
+        (image) => image.BIT240235_ImageUrl === url
+      )
+    ) {
+      Alert.alert(
+        t("Duplicate image", "Ảnh bị trùng"),
+        t("This image already exists.", "Ảnh này đã được thêm.")
+      );
+      return;
+    }
+
+    setDishImages((previous) => [
+      ...previous,
+      {
+        BIT240235_ImageUrl: url,
+        BIT240235_IsThumbnail: previous.length === 0,
+      },
+    ]);
+
+    setImageUrl("");
+  }
+
+  function removeDishImage(url: string) {
+    setDishImages((previous) => {
+      const remaining = previous.filter(
+        (image) => image.BIT240235_ImageUrl !== url
+      );
+
+      if (
+        remaining.length > 0 &&
+        !remaining.some(
+          (image) => image.BIT240235_IsThumbnail
+        )
+      ) {
+        remaining[0] = {
+          ...remaining[0],
+          BIT240235_IsThumbnail: true,
+        };
+      }
+
+      return remaining;
+    });
+  }
+
+  function setThumbnail(url: string) {
+    setDishImages((previous) =>
+      previous.map((image) => ({
+        ...image,
+        BIT240235_IsThumbnail:
+          image.BIT240235_ImageUrl === url,
+      }))
+    );
   }
 
   async function saveDish() {
     const cleanName = name.trim();
     const numericPrice = Number(price);
-    const numericTime = Number(time);
+    const numericTime = Number(preparationTime);
+    const cleanDescription = description.trim();
 
     if (!cleanName) {
-      Alert.alert("Validation", "Please enter the dish name.");
-      return;
-    }
-
-    if (
-      !price.trim() ||
-      !Number.isFinite(numericPrice) ||
-      numericPrice <= 0
-    ) {
-      Alert.alert("Validation", "Price must be greater than 0.");
-      return;
-    }
-
-    if (
-      !time.trim() ||
-      !Number.isFinite(numericTime) ||
-      numericTime <= 0
-    ) {
       Alert.alert(
-        "Validation",
-        "Preparation time must be greater than 0."
+        t("Validation", "Kiểm tra dữ liệu"),
+        t("Dish name is required.", "Vui lòng nhập tên món ăn.")
       );
       return;
     }
 
-    if (!categories.some((c) => c.BIT240235_Id === categoryId)) {
-      Alert.alert("Validation", "Please select a valid category.");
+    if (
+      price.trim() === "" ||
+      !Number.isFinite(numericPrice) ||
+      numericPrice <= 0
+    ) {
+      Alert.alert(
+        t("Validation", "Kiểm tra dữ liệu"),
+        t("Price must be greater than 0.", "Giá phải lớn hơn 0.")
+      );
+      return;
+    }
+
+    if (
+      preparationTime.trim() === "" ||
+      !Number.isFinite(numericTime) ||
+      numericTime <= 0
+    ) {
+      Alert.alert(
+        t("Validation", "Kiểm tra dữ liệu"),
+        t(
+          "Preparation time must be greater than 0.",
+          "Thời gian chuẩn bị phải lớn hơn 0."
+        )
+      );
+      return;
+    }
+
+    const selectedCategory = categories.find(
+      (category) => category.BIT240235_Id === categoryId
+    );
+
+    if (!selectedCategory) {
+      Alert.alert(
+        t("Validation", "Kiểm tra dữ liệu"),
+        t("Please select a valid category.", "Vui lòng chọn danh mục hợp lệ.")
+      );
       return;
     }
 
@@ -144,25 +311,34 @@ export default function HomeScreen() {
 
     if (duplicate) {
       Alert.alert(
-        "Validation",
-        "This dish already exists in this category."
+        t("Duplicate dish", "Món ăn bị trùng"),
+        t(
+          "This dish name already exists in this category.",
+          "Tên món ăn đã tồn tại trong danh mục này."
+        )
       );
       return;
     }
 
-    const oldDish = dishes.find(
-      (dish) => dish.BIT240235_Id === editingId
-    );
+    const images = dishImages.map((image, index) => ({
+      ...image,
+      BIT240235_IsThumbnail:
+        image.BIT240235_IsThumbnail ||
+        (index === 0 &&
+          !dishImages.some(
+            (item) => item.BIT240235_IsThumbnail
+          )),
+    }));
 
     const newDish: Dish = {
-      BIT240235_Id: editingId ?? String(Date.now()),
+      BIT240235_Id: editingId ?? "",
       BIT240235_Name: cleanName,
       BIT240235_Price: numericPrice,
       BIT240235_PreparationTime: numericTime,
-      BIT240235_IsAvailable: available,
-      BIT240235_Description: description.trim(),
+      BIT240235_IsAvailable: isAvailable,
+      BIT240235_Description: cleanDescription,
       BIT240235_DishCategoryId: categoryId,
-      BIT240235_DishImage: oldDish?.BIT240235_DishImage ?? [],
+      BIT240235_DishImage: images,
     };
 
     try {
@@ -174,16 +350,23 @@ export default function HomeScreen() {
         await createDish(newDish);
       }
 
-      setVisible(false);
-      await loadData();
+      setModalVisible(false);
 
-      Alert.alert("Success", "Dish saved to MockAPI.");
+      Alert.alert(
+        t("Success", "Thành công"),
+        t(
+          "Dish saved successfully.",
+          "Đã lưu món ăn thành công."
+        )
+      );
+
+      await loadData();
     } catch (error) {
       Alert.alert(
-        "Save Error",
+        t("Save error", "Lỗi lưu dữ liệu"),
         error instanceof Error
           ? error.message
-          : "Cannot save dish."
+          : t("Could not save the dish.", "Không thể lưu món ăn.")
       );
     } finally {
       setSaving(false);
@@ -192,27 +375,31 @@ export default function HomeScreen() {
 
   function confirmDelete(dish: Dish) {
     Alert.alert(
-      "Delete Dish",
-      `Do you want to delete "${dish.BIT240235_Name}"?`,
+      t("Delete dish", "Xóa món ăn"),
+      t(
+        `Are you sure you want to delete "${dish.BIT240235_Name}"?`,
+        `Bạn có chắc muốn xóa "${dish.BIT240235_Name}" không?`
+      ),
       [
-        { text: "Cancel", style: "cancel" },
         {
-          text: "Delete",
+          text: t("Cancel", "Hủy"),
+          style: "cancel",
+        },
+        {
+          text: t("Delete", "Xóa"),
           style: "destructive",
-          onPress: () => {
-            void (async () => {
-              try {
-                await deleteDishFromAPI(dish.BIT240235_Id);
-                await loadData();
-              } catch (error) {
-                Alert.alert(
-                  "Delete Error",
-                  error instanceof Error
-                    ? error.message
-                    : "Cannot delete dish."
-                );
-              }
-            })();
+          onPress: async () => {
+            try {
+              await deleteDishFromAPI(dish.BIT240235_Id);
+              await loadData();
+            } catch (error) {
+              Alert.alert(
+                t("Delete error", "Lỗi xóa"),
+                error instanceof Error
+                  ? error.message
+                  : t("Could not delete the dish.", "Không thể xóa món ăn.")
+              );
+            }
           },
         },
       ]
@@ -232,15 +419,15 @@ export default function HomeScreen() {
     )
     .filter(
       (dish) =>
-        selectedCategory === "all" ||
-        dish.BIT240235_DishCategoryId === selectedCategory
+        filterCategory === "all" ||
+        dish.BIT240235_DishCategoryId === filterCategory
     )
     .filter((dish) => {
-      if (availabilityFilter === "available") {
+      if (availability === "available") {
         return dish.BIT240235_IsAvailable;
       }
 
-      if (availabilityFilter === "unavailable") {
+      if (availability === "unavailable") {
         return !dish.BIT240235_IsAvailable;
       }
 
@@ -258,15 +445,15 @@ export default function HomeScreen() {
       return true;
     })
     .sort((a, b) => {
-      if (sortBy === "priceAsc") {
+      if (sortOption === "priceAsc") {
         return a.BIT240235_Price - b.BIT240235_Price;
       }
 
-      if (sortBy === "priceDesc") {
+      if (sortOption === "priceDesc") {
         return b.BIT240235_Price - a.BIT240235_Price;
       }
 
-      if (sortBy === "timeAsc") {
+      if (sortOption === "timeAsc") {
         return (
           a.BIT240235_PreparationTime -
           b.BIT240235_PreparationTime
@@ -276,474 +463,862 @@ export default function HomeScreen() {
       return 0;
     });
 
-  function getCategoryName(id: string) {
+  const formatPrice = (value: number) =>
+    `${value.toLocaleString("en-US")} VND`;
+
+  function chip(
+    label: string,
+    selected: boolean,
+    onPress: () => void
+  ) {
     return (
-      categories.find((category) => category.BIT240235_Id === id)
-        ?.BIT240235_Name ?? "Unknown Category"
+      <TouchableOpacity
+        key={label}
+        style={[styles.chip, selected && styles.chipSelected]}
+        onPress={onPress}
+      >
+        <Text
+          style={[
+            styles.chipText,
+            selected && styles.chipTextSelected,
+          ]}
+        >
+          {label}
+        </Text>
+      </TouchableOpacity>
     );
   }
 
-  function resetFilters() {
-    setSearch("");
-    setSelectedCategory("all");
-    setAvailabilityFilter("all");
-    setMinPrice("");
-    setMaxPrice("");
-    setSortBy("none");
-  }
-
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Food Manager</Text>
-      <Text style={styles.subtitle}>
-        Manage your dishes · {filteredDishes.length} dishes
-      </Text>
+    <View style={styles.screen}>
+      <View style={styles.header}>
+        <View style={styles.headerText}>
+          <Text style={styles.headerTitle}>Food Manager</Text>
+          <Text style={styles.headerSubtitle}>
+            {t("Manage your dishes", "Quản lý món ăn")}
+          </Text>
+        </View>
 
-      <TextInput
-        style={styles.search}
-        placeholder="Search dishes..."
-        value={search}
-        onChangeText={setSearch}
-      />
-
-      <Text style={styles.label}>Category</Text>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.horizontalList}
-      >
         <TouchableOpacity
-          style={[
-            styles.categoryButton,
-            selectedCategory === "all" && styles.selectedCategory,
-          ]}
-          onPress={() => setSelectedCategory("all")}
+          style={styles.languageButton}
+          onPress={() =>
+            setLanguage((current) =>
+              current === "en" ? "vi" : "en"
+            )
+          }
         >
-          <Text>All</Text>
+          <Text style={styles.languageText}>
+            {language === "en" ? "VI" : "EN"}
+          </Text>
         </TouchableOpacity>
-
-        {categories.map((category) => (
-          <TouchableOpacity
-            key={category.BIT240235_Id}
-            style={[
-              styles.categoryButton,
-              selectedCategory === category.BIT240235_Id &&
-                styles.selectedCategory,
-            ]}
-            onPress={() =>
-              setSelectedCategory(category.BIT240235_Id)
-            }
-          >
-            <Text>{category.BIT240235_Name}</Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      <Text style={styles.label}>Availability</Text>
-      <View style={styles.actions}>
-        {[
-          { label: "All", value: "all" },
-          { label: "Available", value: "available" },
-          { label: "Unavailable", value: "unavailable" },
-        ].map((option) => (
-          <TouchableOpacity
-            key={option.value}
-            style={[
-              styles.categoryButton,
-              styles.flexButton,
-              availabilityFilter === option.value &&
-                styles.selectedCategory,
-            ]}
-            onPress={() => setAvailabilityFilter(option.value)}
-          >
-            <Text style={styles.smallButtonText}>{option.label}</Text>
-          </TouchableOpacity>
-        ))}
       </View>
 
-      <Text style={styles.label}>Price Range (VND)</Text>
-      <View style={styles.actions}>
-        <TextInput
-          style={[styles.input, styles.flexInput]}
-          placeholder="Minimum"
-          keyboardType="numeric"
-          value={minPrice}
-          onChangeText={setMinPrice}
-        />
-        <TextInput
-          style={[styles.input, styles.flexInput]}
-          placeholder="Maximum"
-          keyboardType="numeric"
-          value={maxPrice}
-          onChangeText={setMaxPrice}
-        />
-      </View>
-
-      {invalidPriceRange && (
-        <Text style={styles.errorText}>
-          Minimum price must not exceed maximum price.
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Text style={styles.sectionTitle}>
+          {t("Search dishes", "Tìm món ăn")}
         </Text>
-      )}
 
-      <Text style={styles.label}>Sort By</Text>
-      <View style={styles.actions}>
-        {[
-          { label: "Default", value: "none" },
-          { label: "Price ↑", value: "priceAsc" },
-          { label: "Price ↓", value: "priceDesc" },
-          { label: "Time ↑", value: "timeAsc" },
-        ].map((option) => (
-          <TouchableOpacity
-            key={option.value}
-            style={[
-              styles.categoryButton,
-              styles.flexButton,
-              sortBy === option.value && styles.selectedCategory,
-            ]}
-            onPress={() => setSortBy(option.value)}
-          >
-            <Text style={styles.smallButtonText}>{option.label}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+        <TextInput
+          style={styles.input}
+          placeholder={t("Enter dish name...", "Nhập tên món ăn...")}
+          value={search}
+          onChangeText={setSearch}
+        />
 
-      <View style={styles.actions}>
+        <Text style={styles.label}>
+          {t("Category", "Danh mục")}
+        </Text>
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          {chip(
+            t("All categories", "Tất cả"),
+            filterCategory === "all",
+            () => setFilterCategory("all")
+          )}
+
+          {categories.map((category) =>
+            chip(
+              category.BIT240235_Name,
+              filterCategory === category.BIT240235_Id,
+              () => setFilterCategory(category.BIT240235_Id)
+            )
+          )}
+        </ScrollView>
+
+        <Text style={styles.label}>
+          {t("Availability", "Trạng thái")}
+        </Text>
+
+        <View style={styles.chipRow}>
+          {chip(
+            t("All", "Tất cả"),
+            availability === "all",
+            () => setAvailability("all")
+          )}
+          {chip(
+            t("Available", "Còn bán"),
+            availability === "available",
+            () => setAvailability("available")
+          )}
+          {chip(
+            t("Unavailable", "Ngừng bán"),
+            availability === "unavailable",
+            () => setAvailability("unavailable")
+          )}
+        </View>
+
+        <Text style={styles.label}>
+          {t("Price range (VND)", "Khoảng giá (VND)")}
+        </Text>
+
+        <View style={styles.row}>
+          <TextInput
+            style={[styles.input, styles.halfInput]}
+            placeholder={t("Minimum", "Giá thấp nhất")}
+            value={minPrice}
+            onChangeText={setMinPrice}
+            keyboardType="numeric"
+          />
+          <TextInput
+            style={[styles.input, styles.halfInput]}
+            placeholder={t("Maximum", "Giá cao nhất")}
+            value={maxPrice}
+            onChangeText={setMaxPrice}
+            keyboardType="numeric"
+          />
+        </View>
+
+        {invalidPriceRange && (
+          <Text style={styles.errorText}>
+            {t(
+              "Minimum price cannot exceed maximum price.",
+              "Giá thấp nhất không được lớn hơn giá cao nhất."
+            )}
+          </Text>
+        )}
+
+        <Text style={styles.label}>
+          {t("Sort by", "Sắp xếp")}
+        </Text>
+
+        <View style={styles.chipRow}>
+          {chip(
+            t("Default", "Mặc định"),
+            sortOption === "none",
+            () => setSortOption("none")
+          )}
+          {chip(
+            t("Price ↑", "Giá ↑"),
+            sortOption === "priceAsc",
+            () => setSortOption("priceAsc")
+          )}
+          {chip(
+            t("Price ↓", "Giá ↓"),
+            sortOption === "priceDesc",
+            () => setSortOption("priceDesc")
+          )}
+          {chip(
+            t("Time ↑", "Thời gian ↑"),
+            sortOption === "timeAsc",
+            () => setSortOption("timeAsc")
+          )}
+        </View>
+
         <TouchableOpacity
-          style={[styles.addButton, styles.flexButton]}
+          style={styles.addButton}
           onPress={openAdd}
         >
-          <Text style={styles.whiteButtonText}>+ Add Dish</Text>
+          <Text style={styles.addButtonText}>
+            + {t("Add Dish", "Thêm món ăn")}
+          </Text>
         </TouchableOpacity>
+
+        <View style={styles.listHeading}>
+          <Text style={styles.sectionTitle}>
+            {t("Dish List", "Danh sách món ăn")}
+          </Text>
+          <Text style={styles.countText}>
+            {filteredDishes.length} {t("dishes", "món")}
+          </Text>
+        </View>
+
+        {loading ? (
+          <ActivityIndicator
+            size="large"
+            color={COLORS.primary}
+            style={styles.loader}
+          />
+        ) : invalidPriceRange ? (
+          <Text style={styles.emptyText}>
+            {t("Please correct the price range.", "Vui lòng sửa khoảng giá.")}
+          </Text>
+        ) : filteredDishes.length === 0 ? (
+          <Text style={styles.emptyText}>
+            {t("No dishes found.", "Không tìm thấy món ăn.")}
+          </Text>
+        ) : (
+          filteredDishes.map((dish) => {
+            const thumbnail = Array.isArray(dish.BIT240235_DishImage)
+              ? dish.BIT240235_DishImage.find(
+                  (image) => image.BIT240235_IsThumbnail
+                ) ?? dish.BIT240235_DishImage[0]
+              : undefined;
+
+            return (
+              <View
+                key={dish.BIT240235_Id}
+                style={styles.dishCard}
+              >
+                {thumbnail?.BIT240235_ImageUrl ? (
+                  <Image
+                    source={{ uri: thumbnail.BIT240235_ImageUrl }}
+                    style={styles.dishImage}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View style={[styles.dishImage, styles.imagePlaceholder]}>
+                    <Text style={styles.placeholderText}>
+                      {t("No image", "Chưa có ảnh")}
+                    </Text>
+                  </View>
+                )}
+
+                <View style={styles.dishInfo}>
+                  <Text style={styles.dishName}>
+                    {dish.BIT240235_Name}
+                  </Text>
+
+                  <Text style={styles.categoryText}>
+                    {getCategoryName(dish.BIT240235_DishCategoryId)}
+                  </Text>
+
+                  <Text style={styles.priceText}>
+                    {formatPrice(dish.BIT240235_Price)}
+                  </Text>
+
+                  <Text style={styles.detailText}>
+                    {dish.BIT240235_PreparationTime}{" "}
+                    {t("minutes", "phút")} ·{" "}
+                    {dish.BIT240235_PreparationTime <= 15
+                      ? t("Quick", "Nhanh")
+                      : t("Regular", "Thông thường")}
+                  </Text>
+
+                  <Text
+                    style={[
+                      styles.status,
+                      dish.BIT240235_IsAvailable
+                        ? styles.available
+                        : styles.unavailable,
+                    ]}
+                  >
+                    {dish.BIT240235_IsAvailable
+                      ? t("Available", "Còn bán")
+                      : t("Unavailable", "Ngừng bán")}
+                  </Text>
+
+                  {!!dish.BIT240235_Description && (
+                    <Text style={styles.description}>
+                      {dish.BIT240235_Description}
+                    </Text>
+                  )}
+
+                  <View style={styles.actionRow}>
+                    <TouchableOpacity
+                      style={styles.editButton}
+                      onPress={() => openEdit(dish)}
+                    >
+                      <Text style={styles.actionText}>
+                        {t("Edit", "Sửa")}
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.deleteButton}
+                      onPress={() => confirmDelete(dish)}
+                    >
+                      <Text style={styles.actionText}>
+                        {t("Delete", "Xóa")}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            );
+          })
+        )}
 
         <TouchableOpacity
-          style={[styles.resetButton, styles.flexButton]}
-          onPress={resetFilters}
+          style={styles.refreshButton}
+          onPress={() => void loadData()}
+          disabled={loading}
         >
-          <Text>Reset Filters</Text>
-        </TouchableOpacity>
-      </View>
-
-      {loading ? (
-        <ActivityIndicator
-          size="large"
-          color="#2563EB"
-          style={{ marginTop: 30 }}
-        />
-      ) : (
-        <FlatList
-          data={invalidPriceRange ? [] : filteredDishes}
-          keyExtractor={(item) => item.BIT240235_Id}
-          contentContainerStyle={styles.listContent}
-          onRefresh={() => void loadData()}
-          refreshing={loading}
-          ListEmptyComponent={
-            <Text style={styles.empty}>
-              No dishes found. Pull down to refresh.
-            </Text>
-          }
-          renderItem={({ item }) => (
-            <View style={styles.card}>
-              <Text style={styles.dishName}>
-                {item.BIT240235_Name}
-              </Text>
-
-              <Text style={styles.info}>
-                {getCategoryName(item.BIT240235_DishCategoryId)}
-              </Text>
-
-              <Text style={styles.price}>
-                {item.BIT240235_Price.toLocaleString("en-US")} VND
-              </Text>
-
-              <Text style={styles.info}>
-                Preparation: {item.BIT240235_PreparationTime} minutes
-              </Text>
-
-              <Text style={styles.info}>
-                {item.BIT240235_PreparationTime <= 15
-                  ? "Quick"
-                  : "Regular"}
-                {" · "}
-                {item.BIT240235_IsAvailable
-                  ? "Available"
-                  : "Unavailable"}
-              </Text>
-
-              {item.BIT240235_Description !== "" && (
-                <Text style={styles.info}>
-                  {item.BIT240235_Description}
-                </Text>
-              )}
-
-              <View style={styles.actions}>
-                <TouchableOpacity
-                  style={[styles.editButton, styles.flexButton]}
-                  onPress={() => openEdit(item)}
-                >
-                  <Text style={styles.whiteButtonText}>Edit</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.deleteButton, styles.flexButton]}
-                  onPress={() => confirmDelete(item)}
-                >
-                  <Text style={styles.whiteButtonText}>Delete</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
-        />
-      )}
-
-      <Modal visible={visible} animationType="slide">
-        <ScrollView contentContainerStyle={styles.form}>
-          <Text style={styles.title}>
-            {editingId ? "Edit Dish" : "Add Dish"}
+          <Text style={styles.refreshText}>
+            {t("Reload and Sync", "Tải lại và đồng bộ")}
           </Text>
+        </TouchableOpacity>
+      </ScrollView>
 
-          <Text style={styles.label}>Dish Name *</Text>
-          <TextInput
-            style={styles.input}
-            value={name}
-            onChangeText={setName}
-            placeholder="Enter dish name"
-          />
+      <Modal
+        visible={modalVisible}
+        animationType="slide"
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <View style={styles.modalScreen}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>
+              {editingId
+                ? t("Edit Dish", "Sửa món ăn")
+                : t("Add Dish", "Thêm món ăn")}
+            </Text>
 
-          <Text style={styles.label}>Price (VND) *</Text>
-          <TextInput
-            style={styles.input}
-            value={price}
-            onChangeText={setPrice}
-            keyboardType="numeric"
-            placeholder="Enter price"
-          />
-
-          <Text style={styles.label}>Preparation Time (minutes) *</Text>
-          <TextInput
-            style={styles.input}
-            value={time}
-            onChangeText={setTime}
-            keyboardType="numeric"
-            placeholder="Enter preparation time"
-          />
-
-          <Text style={styles.label}>Description</Text>
-          <TextInput
-            style={[styles.input, styles.descriptionInput]}
-            value={description}
-            onChangeText={setDescription}
-            multiline
-            placeholder="Enter description"
-          />
-
-          <Text style={styles.label}>Category *</Text>
-          {categories.map((category) => (
             <TouchableOpacity
-              key={category.BIT240235_Id}
-              style={[
-                styles.categoryButton,
-                categoryId === category.BIT240235_Id &&
-                  styles.selectedCategory,
-              ]}
-              onPress={() => setCategoryId(category.BIT240235_Id)}
+              onPress={() => setModalVisible(false)}
             >
-              <Text>
-                {categoryId === category.BIT240235_Id ? "✓ " : ""}
-                {category.BIT240235_Name}
+              <Text style={styles.closeText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            contentContainerStyle={styles.formContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            <Text style={styles.label}>
+              {t("Dish name *", "Tên món ăn *")}
+            </Text>
+            <TextInput
+              style={styles.input}
+              placeholder={t("Enter dish name", "Nhập tên món ăn")}
+              value={name}
+              onChangeText={setName}
+            />
+
+            <Text style={styles.label}>
+              {t("Price (VND) *", "Giá (VND) *")}
+            </Text>
+            <TextInput
+              style={styles.input}
+              placeholder="50000"
+              value={price}
+              onChangeText={setPrice}
+              keyboardType="decimal-pad"
+            />
+
+            <Text style={styles.label}>
+              {t("Preparation time (minutes) *", "Thời gian chuẩn bị (phút) *")}
+            </Text>
+            <TextInput
+              style={styles.input}
+              placeholder="15"
+              value={preparationTime}
+              onChangeText={setPreparationTime}
+              keyboardType="numeric"
+            />
+
+            <Text style={styles.label}>
+              {t("Description", "Mô tả")}
+            </Text>
+            <TextInput
+              style={[styles.input, styles.multilineInput]}
+              placeholder={t("Describe the dish...", "Mô tả món ăn...")}
+              value={description}
+              onChangeText={setDescription}
+              multiline
+              textAlignVertical="top"
+            />
+
+            <Text style={styles.label}>
+              {t("Select category *", "Chọn danh mục *")}
+            </Text>
+            <View style={styles.chipRow}>
+              {categories.map((category) =>
+                chip(
+                  category.BIT240235_Name,
+                  categoryId === category.BIT240235_Id,
+                  () => setCategoryId(category.BIT240235_Id)
+                )
+              )}
+            </View>
+
+            <View style={styles.switchRow}>
+              <Text style={styles.label}>
+                {t("Available for sale", "Đang bán")}
+              </Text>
+              <Switch
+                value={isAvailable}
+                onValueChange={setIsAvailable}
+                trackColor={{ true: COLORS.primary }}
+              />
+            </View>
+
+            <Text style={styles.sectionTitle}>
+              {t("Dish Images", "Ảnh món ăn")}
+            </Text>
+
+            <Text style={styles.hint}>
+              {t(
+                "Add image URLs. The first image is the default thumbnail.",
+                "Thêm URL ảnh. Ảnh đầu tiên mặc định là ảnh đại diện."
+              )}
+            </Text>
+
+            <TextInput
+              style={styles.input}
+              placeholder="https://example.com/image.jpg"
+              value={imageUrl}
+              onChangeText={setImageUrl}
+              autoCapitalize="none"
+              keyboardType="url"
+            />
+
+            <TouchableOpacity
+              style={styles.secondaryButton}
+              onPress={addDishImage}
+            >
+              <Text style={styles.secondaryButtonText}>
+                + {t("Add Image URL", "Thêm URL ảnh")}
               </Text>
             </TouchableOpacity>
-          ))}
 
-          <TouchableOpacity
-            style={[
-              styles.categoryButton,
-              available && styles.selectedCategory,
-            ]}
-            onPress={() => setAvailable(!available)}
-          >
-            <Text>
-              {available ? "✓ Available" : "Mark as Available"}
-            </Text>
-          </TouchableOpacity>
+            {dishImages.map((image) => (
+              <View
+                key={image.BIT240235_ImageUrl}
+                style={styles.imageRow}
+              >
+                <Image
+                  source={{ uri: image.BIT240235_ImageUrl }}
+                  style={styles.previewImage}
+                  onError={() =>
+                    Alert.alert(
+                      t("Image error", "Lỗi ảnh"),
+                      t(
+                        "This image could not be loaded.",
+                        "Không thể tải ảnh này."
+                      )
+                    )
+                  }
+                />
 
-          <TouchableOpacity
-            style={[styles.addButton, saving && styles.disabledButton]}
-            disabled={saving}
-            onPress={() => void saveDish()}
-          >
-            <Text style={styles.whiteButtonText}>
-              {saving ? "Saving..." : "Save Dish"}
-            </Text>
-          </TouchableOpacity>
+                <View style={styles.imageDetails}>
+                  <Text style={styles.imageUrlText} numberOfLines={2}>
+                    {image.BIT240235_ImageUrl}
+                  </Text>
 
-          <TouchableOpacity
-            style={styles.cancelButton}
-            onPress={() => setVisible(false)}
-          >
-            <Text>Cancel</Text>
-          </TouchableOpacity>
-        </ScrollView>
+                  <TouchableOpacity
+                    onPress={() =>
+                      setThumbnail(image.BIT240235_ImageUrl)
+                    }
+                  >
+                    <Text
+                      style={
+                        image.BIT240235_IsThumbnail
+                          ? styles.thumbnailSelected
+                          : styles.thumbnailButton
+                      }
+                    >
+                      {image.BIT240235_IsThumbnail
+                        ? "★ " + t("Thumbnail", "Ảnh đại diện")
+                        : t("Set as thumbnail", "Chọn làm ảnh đại diện")}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() =>
+                      removeDishImage(image.BIT240235_ImageUrl)
+                    }
+                  >
+                    <Text style={styles.removeImageText}>
+                      {t("Remove image", "Xóa ảnh")}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))}
+
+            <TouchableOpacity
+              style={[
+                styles.addButton,
+                saving && styles.disabledButton,
+              ]}
+              onPress={() => void saveDish()}
+              disabled={saving}
+            >
+              <Text style={styles.addButtonText}>
+                {saving
+                  ? t("Saving...", "Đang lưu...")
+                  : t("Save Dish", "Lưu món ăn")}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.cancelButton}
+              onPress={() => setModalVisible(false)}
+              disabled={saving}
+            >
+              <Text style={styles.cancelText}>
+                {t("Cancel", "Hủy")}
+              </Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
       </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  screen: {
     flex: 1,
-    backgroundColor: "#F5F7FB",
-    paddingHorizontal: 16,
-    paddingTop: 55,
+    backgroundColor: COLORS.background,
   },
-  title: {
-    fontSize: 27,
-    fontWeight: "bold",
-    color: "#172554",
+  header: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 20,
+    paddingTop: 52,
+    paddingBottom: 22,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
-  subtitle: {
-    color: "#64748B",
+  headerText: {
+    flex: 1,
+  },
+  headerTitle: {
+    color: COLORS.white,
+    fontSize: 25,
+    fontWeight: "800",
+  },
+  headerSubtitle: {
+    color: "#DBEAFE",
+    fontSize: 14,
     marginTop: 5,
-    marginBottom: 15,
+  },
+  languageButton: {
+    backgroundColor: COLORS.white,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 10,
+    marginLeft: 12,
+  },
+  languageText: {
+    color: COLORS.primary,
+    fontWeight: "800",
+  },
+  content: {
+    padding: 16,
+    paddingBottom: 40,
+  },
+  sectionTitle: {
+    fontSize: 19,
+    fontWeight: "800",
+    color: COLORS.text,
+    marginBottom: 12,
   },
   label: {
-    fontWeight: "600",
-    color: "#334155",
-    marginTop: 10,
-    marginBottom: 7,
-  },
-  search: {
-    backgroundColor: "white",
-    padding: 12,
-    borderRadius: 10,
+    fontSize: 14,
+    fontWeight: "700",
+    color: COLORS.text,
+    marginTop: 14,
     marginBottom: 8,
+  },
+  input: {
+    backgroundColor: COLORS.white,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: COLORS.border,
+    borderRadius: 11,
+    paddingHorizontal: 13,
+    paddingVertical: 12,
+    fontSize: 14,
+    color: COLORS.text,
+    marginBottom: 8,
   },
-  horizontalList: {
-    flexGrow: 0,
+  multilineInput: {
+    minHeight: 90,
   },
-  actions: {
+  row: {
     flexDirection: "row",
-    gap: 8,
-    alignItems: "center",
-    marginTop: 8,
-    marginBottom: 8,
+    gap: 10,
   },
-  categoryButton: {
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    backgroundColor: "white",
+  halfInput: {
+    flex: 1,
+  },
+  chipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  chip: {
+    backgroundColor: COLORS.white,
     borderWidth: 1,
-    borderColor: "#CBD5E1",
-    borderRadius: 8,
+    borderColor: COLORS.border,
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
     marginRight: 6,
     marginBottom: 6,
   },
-  selectedCategory: {
-    borderColor: "#2563EB",
-    backgroundColor: "#DBEAFE",
+  chipSelected: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
   },
-  flexButton: {
-    flex: 1,
-  },
-  flexInput: {
-    flex: 1,
-  },
-  smallButtonText: {
+  chipText: {
+    color: COLORS.text,
     fontSize: 12,
-    textAlign: "center",
+    fontWeight: "600",
   },
-  input: {
-    backgroundColor: "white",
-    borderWidth: 1,
-    borderColor: "#CBD5E1",
-    borderRadius: 9,
-    padding: 12,
-  },
-  descriptionInput: {
-    height: 80,
-    textAlignVertical: "top",
+  chipTextSelected: {
+    color: COLORS.white,
   },
   addButton: {
-    backgroundColor: "#2563EB",
-    padding: 13,
-    borderRadius: 10,
+    backgroundColor: COLORS.primary,
+    borderRadius: 12,
+    paddingVertical: 15,
+    alignItems: "center",
+    marginTop: 18,
+    marginBottom: 20,
+  },
+  addButtonText: {
+    color: COLORS.white,
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  listHeading: {
+    flexDirection: "row",
+    justifyContent: "space-between",
     alignItems: "center",
     marginTop: 8,
-    marginBottom: 8,
   },
-  resetButton: {
+  countText: {
+    color: COLORS.muted,
+    fontSize: 13,
+  },
+  loader: {
+    marginTop: 35,
+  },
+  emptyText: {
+    textAlign: "center",
+    color: COLORS.muted,
+    padding: 28,
+    backgroundColor: COLORS.white,
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  dishCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: 15,
+    marginBottom: 14,
+    padding: 12,
+    flexDirection: "row",
+    gap: 12,
+    borderWidth: 1,
+    borderColor: "#E6EBF2",
+  },
+  dishImage: {
+    width: 100,
+    height: 110,
+    borderRadius: 10,
     backgroundColor: "#E2E8F0",
-    padding: 13,
-    borderRadius: 10,
-    alignItems: "center",
-    marginTop: 8,
-    marginBottom: 8,
   },
-  whiteButtonText: {
-    color: "white",
-    fontWeight: "bold",
+  imagePlaceholder: {
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 5,
+  },
+  placeholderText: {
+    fontSize: 11,
+    color: COLORS.muted,
     textAlign: "center",
   },
-  card: {
-    backgroundColor: "white",
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
+  dishInfo: {
+    flex: 1,
   },
   dishName: {
-    fontSize: 19,
-    fontWeight: "bold",
-    color: "#172554",
-    marginBottom: 6,
+    fontSize: 16,
+    fontWeight: "800",
+    color: COLORS.text,
   },
-  info: {
-    color: "#64748B",
+  categoryText: {
+    fontSize: 12,
+    color: COLORS.muted,
     marginTop: 4,
   },
-  price: {
-    color: "#2563EB",
-    fontWeight: "bold",
-    fontSize: 17,
+  priceText: {
+    fontSize: 15,
+    color: COLORS.primary,
+    fontWeight: "800",
     marginTop: 7,
   },
+  detailText: {
+    fontSize: 12,
+    color: COLORS.muted,
+    marginTop: 5,
+  },
+  status: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    overflow: "hidden",
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 7,
+  },
+  available: {
+    backgroundColor: "#DCFCE7",
+    color: COLORS.green,
+  },
+  unavailable: {
+    backgroundColor: "#FEE2E2",
+    color: COLORS.danger,
+  },
+  description: {
+    color: COLORS.muted,
+    fontSize: 12,
+    marginTop: 7,
+  },
+  actionRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 12,
+  },
   editButton: {
-    backgroundColor: "#0F766E",
-    padding: 11,
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     borderRadius: 8,
-    alignItems: "center",
   },
   deleteButton: {
-    backgroundColor: "#DC2626",
-    padding: 11,
+    backgroundColor: COLORS.danger,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     borderRadius: 8,
+  },
+  actionText: {
+    color: COLORS.white,
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  refreshButton: {
+    padding: 13,
     alignItems: "center",
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    borderRadius: 10,
+    marginTop: 8,
   },
-  empty: {
-    textAlign: "center",
-    marginTop: 30,
-    marginBottom: 30,
-    color: "#64748B",
-  },
-  listContent: {
-    paddingTop: 8,
-    paddingBottom: 30,
-  },
-  form: {
-    padding: 20,
-    paddingTop: 55,
-    backgroundColor: "#F8FAFC",
-  },
-  cancelButton: {
-    alignItems: "center",
-    padding: 14,
-    marginBottom: 25,
+  refreshText: {
+    color: COLORS.primary,
+    fontWeight: "700",
   },
   errorText: {
-    color: "#DC2626",
-    marginTop: 4,
+    color: COLORS.danger,
+    fontSize: 12,
+    marginBottom: 8,
+  },
+  modalScreen: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+  },
+  modalHeader: {
+    backgroundColor: COLORS.primary,
+    paddingTop: 52,
+    paddingBottom: 18,
+    paddingHorizontal: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  modalTitle: {
+    color: COLORS.white,
+    fontSize: 22,
+    fontWeight: "800",
+  },
+  closeText: {
+    color: COLORS.white,
+    fontSize: 24,
+    paddingHorizontal: 8,
+  },
+  formContent: {
+    padding: 18,
+    paddingBottom: 40,
+  },
+  switchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 6,
+    marginBottom: 20,
+  },
+  hint: {
+    fontSize: 12,
+    color: COLORS.muted,
+    marginBottom: 10,
+    lineHeight: 18,
+  },
+  secondaryButton: {
+    backgroundColor: "#DBEAFE",
+    borderRadius: 10,
+    padding: 12,
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  secondaryButtonText: {
+    color: COLORS.primary,
+    fontWeight: "800",
+  },
+  imageRow: {
+    flexDirection: "row",
+    backgroundColor: COLORS.white,
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 10,
+    gap: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  previewImage: {
+    width: 82,
+    height: 82,
+    borderRadius: 8,
+    backgroundColor: "#E2E8F0",
+  },
+  imageDetails: {
+    flex: 1,
+    justifyContent: "center",
+  },
+  imageUrlText: {
+    fontSize: 11,
+    color: COLORS.muted,
+    marginBottom: 7,
+  },
+  thumbnailSelected: {
+    color: COLORS.green,
+    fontSize: 12,
+    fontWeight: "800",
+    marginBottom: 6,
+  },
+  thumbnailButton: {
+    color: COLORS.primary,
+    fontSize: 12,
+    fontWeight: "700",
+    marginBottom: 6,
+  },
+  removeImageText: {
+    color: COLORS.danger,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  cancelButton: {
+    padding: 14,
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  cancelText: {
+    color: COLORS.muted,
+    fontWeight: "700",
   },
   disabledButton: {
     opacity: 0.6,
